@@ -1,0 +1,447 @@
+---
+title: "Project DS - PMB"
+author: "Roni Yunis"
+date: "8/31/2020"
+output: html_document
+---
+
+#clear variabel
+```{r}
+rm(list=ls())
+```
+
+```{r setup, include=FALSE}
+# setup chunk options
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  comment = "#>"
+)
+options(scipen = 9999)
+```
+
+```{r}
+# package for data wrangling/data manipulation
+library(dplyr)
+# package for working with date
+library(lubridate)
+# package for visualization
+library(ggplot2)
+# package untuk memahami script/R
+library(tidyverse)
+# tseries package for stationer data check
+library(tseries)
+# package prophet
+library(prophet)
+```
+
+# Data Preparation
+```{r}
+pmb <- read.csv ("data_input/pmbmikroskil.csv")
+pmb <- pmb[,2:11] #menampilkan indek kolom ke 2 sampai dengan 8
+#fungsi head digunakan utk menampilkan 6 data teratas
+head(pmb)
+```
+
+
+```{r}
+#fungsi tail digunakan utk menampilkan 6 data terbawah
+tail(pmb)
+```
+
+```{r}
+pmb
+```
+
+
+```{r}
+#fungsi untuk melihat summary dari data
+summary(pmb)
+```
+Terdapat 2 buah data NA
+
+```{r}
+pmbclean <- na.omit(pmb)
+summary(pmbclean)
+```
+
+#untuk menentukan apakah data stationer atau tidak.
+```{r}
+adf.test(pmbclean$Jumlah.Mhs)
+```
+
+```{r}
+#fungsi ncol ini digunakan untuk melihat jumlah kolom data
+ncol(pmbclean)
+```
+```{r}
+#fungsi nrow ini digunakan untuk melihat jumlah baris data
+nrow(pmbclean)
+```
+```{r}
+#fungsi untuk menampilkan kolom tertentu dalam beberapa kolom data
+pmbclean %>% #ctrl + shift + m (piping/fungsi Pipe)
+  select(3) %>%
+  head()
+```
+
+```{r}
+#fungsi untuk menampilkan type data dari kolom atau variabel
+glimpse(pmbclean)
+```
+
+Karena Tanggal.Daftar dalam bentuk type data karakter, maka kita harus rubah kedalam bentuk type data (date) atau tanggal, dengan format dd.mm.yyy
+
+
+```{r}
+pmbnew <- pmbclean %>% 
+  mutate(Tanggal.Daftar = dmy (Tanggal.Daftar)) %>% 
+  arrange(Tanggal.Daftar)
+head(pmbnew)
+```
+
+```{r}
+glimpse(pmbnew)
+```
+
+```{r}
+#merubah type data jumlah.mhs menjadi double
+pmbnew$Jumlah.Mhs <- as.numeric(as.factor(pmbnew$Jumlah.Mhs))
+glimpse(pmbnew)
+```
+
+# Visualisasi Exploratory Analysis
+```{r}
+pmbnew <- pmbnew[order(pmb$Tanggal.Daftar), ]
+prodi <- c("TEKNIK INFORMATIKA (S-1)","SISTEM INFORMASI (S-1)", "MANAJEMEN (S-1)", "AKUNTANSI (S-1)")
+prodi <-  subset(pmbnew, Program.Studi %in% prodi)
+ggplot (data=prodi, mapping=aes(x=Tanggal.Daftar, y=(Jumlah.Mhs), col=Program.Studi)) +
+geom_point () +
+  geom_jitter()
+  labs(x="Tahun",
+      y="Jumlah Mahasiswa",
+      title="Jumlah Mahasiswa") +
+theme_minimal()
+```
+
+```{r}
+# kita ingin melakukan filter data dengan kondisi program studi Teknik Informatika dan Sistem Informasi saja
+pmbstmik <- pmbnew %>% 
+  filter(Program.Studi == "TEKNIK INFORMATIKA (S-1)" | Program.Studi == "SISTEM INFORMASI (S-1)")
+glimpse(pmbstmik)
+  
+```
+
+```{r}
+pmbstie <- pmbnew %>% 
+  filter (Program.Studi == "MANAJEMEN (S-1)" | Program.Studi == "AKUNTANSI (S-1)")
+glimpse(pmbstie)
+```
+
+#Visualisasi data STMIK
+```{r}
+pmbstmik <- pmbstmik[order(pmbnew$Tanggal.Daftar),]
+prodi <- c("TEKNIK INFORMATIKA (S-1)","SISTEM INFORMASI (S-1)")
+prodi <- subset(pmbstmik, Program.Studi %in% prodi)
+ggplot (data=prodi, mapping=aes(x=Tanggal.Daftar, y=(Jumlah.Mhs), col=Program.Studi)) + 
+  #geom_line(aes(color  = Program.Studi)) +
+  geom_point(aes(color = Program.Studi)) +
+  labs(x="Tahun",
+       y="Jumlah Mahasiswa",
+       title="Jumlah Mahasiswa STMIK") +
+  theme_minimal()
+```
+#menghitung jumlah.mhs yang mendaftar berdasarkan program studi
+```{r}
+pmbnew %>% 
+  group_by(Program.Studi) %>% 
+  count() %>% 
+  arrange(-n)
+```
+#filter mahasiswa program studi Sistem Informasi (SI)
+```{r}
+prodiSI <- pmbstmik %>% 
+  filter(Program.Studi == "SISTEM INFORMASI (S-1)")
+glimpse(prodiSI)
+```
+
+```{r}
+head(prodiSI)
+```
+#range tanggal pendaftaran mahasiswa baru
+```{r}
+range(prodiSI$Tanggal.Daftar)
+```
+
+#tampilkan jumlah mahasiswa program studi Sistem Informasi yang mendaftar perhari
+```{r}
+daily_regis <- prodiSI %>% 
+  group_by(Tanggal.Daftar) %>% 
+  summarise(
+    jmlDaftar = sum (Jumlah.Mhs)
+  )
+daily_regis
+```
+
+#visualisasi pendaftaran perhari program studi Sistem Informasi
+```{r}
+daily_regis %>% 
+  ggplot(aes(x=Tanggal.Daftar, y=jmlDaftar)) +
+  geom_point() +
+  theme_minimal()
+```
+
+```{r} 
+prodiSI %>% 
+  mutate(first_date_month = floor_date(Tanggal.Daftar, unit = "months")) %>%  
+  group_by(first_date_month) %>% 
+  summarise( 
+    daftar = sum(Jumlah.Mhs) 
+  )  
+```
+
+```{r}
+daily_regis %>% 
+  ggplot(aes(x=Tanggal.Daftar, y=jmlDaftar)) + 
+  geom_line(color = "tomato3", group=1) + 
+  labs( 
+    title = "Jumlah Pendaftaran Mahasiswa", 
+    subtitle = "Program Studi SI", 
+    caption = "Sistem Informasi",
+    x = "Tahun", 
+    y = "Jumlah Daftar" 
+  ) + 
+  theme_minimal()
+```
+## Fitting `prophet` Time Series 
+```{r}
+train_daily <- daily_regis %>%
+  rename(
+    ds="Tanggal.Daftar",
+    y="jmlDaftar"
+  )
+glimpse(train_daily)
+```
+
+```{r}
+model_SI <- prophet() %>%
+  fit.prophet(train_daily)
+```
+
+#periode prediksi untuk 5 tahun kedepan (10 x 365 hari)
+```{r}
+future_SI <- make_future_dataframe(model_SI, periods = 3650, freq = "day")
+glimpse(future_SI)
+```
+
+#visualisasi hasil peralaman untuk 5 tahun kedepan
+```{r}
+forecast_SI <- predict(model_SI, future_SI)
+plot(model_SI, forecast_SI)
+```
+
+```{r}
+prophet_plot_components(model_SI, forecast_SI)
+```
+
+```{r}
+head(forecast_SI)
+```
+
+```{r}
+forecast_SI %>%
+  select(ds, trend, weekly, yearly, yhat)
+```
+
+```{r}
+forecast_SI$trend[1] + forecast_SI$weekly[1] + forecast_SI$yearly[1] 
+forecast_SI$yhat[1]
+```
+
+```{r}
+plot(model_SI, forecast_SI) + 
+  add_changepoints_to_plot(model_SI, threshold = 0)
+```
+
+```{r}
+plot(model_SI, forecast_SI) + 
+  add_changepoints_to_plot(model_SI)
+```
+```{r}
+before_2019 <- daily_regis %>% 
+  mutate( 
+    year = year(Tanggal.Daftar) 
+  ) %>% 
+  filter(year < 2019) %>% 
+  rename( 
+    ds = "Tanggal.Daftar", 
+    y = "jmlDaftar" 
+  ) 
+after_2019 <- daily_regis %>% 
+  mutate( 
+    year = year(Tanggal.Daftar) 
+  ) %>% 
+  filter(year >= 2019) %>% 
+  rename( 
+    ds = "Tanggal.Daftar", 
+    y = "jmlDaftar" 
+  ) 
+ggplot(before_2019, aes(x=ds, y=y)) + 
+  geom_point() + 
+  theme_minimal()
+```
+```{r}
+model_before_2019 <- prophet(yearly.seasonality = TRUE, 
+                             changepoint.prior.scale = 0.5) %>% 
+fit.prophet(before_2019) 
+future_before_2019 <- make_future_dataframe(model_before_2019, periods = 365) 
+forecaset_before_2019 <- predict(model_before_2019, future_before_2019) 
+plot(model_before_2019, forecaset_before_2019) + 
+  add_changepoints_to_plot(model_before_2019) + 
+  geom_point(data = after_2019, aes(x = as.POSIXct(ds), y=y), color = "tomato3")
+```
+#melihat tren dengan liner model
+```{r}
+daily_regis %>% 
+  ggplot(aes(x=Tanggal.Daftar, y=jmlDaftar)) + 
+  geom_point() + 
+  geom_smooth(method = "lm") 
+
+```
+#Non Reguler Seasionality
+```{r}
+model_SI_monthly <- prophet(changepoint.prior.scale = 0.05, 
+                    yearly.seasonality = TRUE) %>% 
+  add_seasonality(name = "monthly", period = 30,5, fourier.order = 5) %>% 
+  fit.prophet(train_daily) 
+future_SI_monthly <- make_future_dataframe(model_SI_monthly, periods = 730) 
+forecast_SI_monthly <- predict(model_SI_monthly, future_SI_monthly) 
+prophet_plot_components(model_SI_monthly, forecast_SI_monthly) 
+```
+#model yang mengakomodasi efek musiman mingguan, bulanan dan tahunan
+```{r}
+model_SI_monthly <- prophet(changepoint.prior.scale = 0.05, 
+                    yearly.seasonality = TRUE) %>% 
+  add_seasonality(name = "monthly", period = 30.5, fourier.order = 5) %>% 
+  fit.prophet(train_daily) 
+future_SI_monthly <- make_future_dataframe(model_SI_monthly, periods = 365) 
+forecast_SI_monthly <- predict(model_SI_monthly, future_SI_monthly) 
+plot(model_SI_monthly, forecast_SI_monthly) 
+```
+#model forecast evaluation
+Tujuannya cukup jelas, adalah untuk memperoleh gambaran sekilas tentang jenis kesalahan apa yang akan kita harapkan untuk model tersebut. Sekarang mari kita lakukan pemisahan sekali lagi, ingat bahwa data kita memiliki rentang dari awal 2010 hingga akhir 2018. Katakanlah, saya akan menyimpan catatan 2019 sebagai data pengujian dan menggunakan sisanya untuk pelatihan model:
+```{r}
+cutoff <- dmy("30-05-2019") 
+train <- daily_regis %>% 
+  filter( 
+    Tanggal.Daftar < cutoff 
+  ) %>% 
+  rename( 
+    "ds" = Tanggal.Daftar, 
+    "y" = jmlDaftar 
+  ) 
+test <- daily_regis %>% 
+  filter( 
+    Tanggal.Daftar >= cutoff 
+  ) %>% 
+  rename( 
+    "ds" = Tanggal.Daftar, 
+    "y" = jmlDaftar 
+  ) 
+ggplot(daily_regis, aes(x=Tanggal.Daftar, y=jmlDaftar)) + 
+  geom_point(data = train, aes(x=ds, y=y)) + 
+  geom_point(data = test, aes(x=ds, y=y), color="tomato3")
+```
+Perhatikan bahwa titik berwarna merah sekarang akan diperlakukan sebagai data yang tidak terlihat dan tidak akan diteruskan ke model. Sekarang mari kita buat model kita menggunakan model yang sebelumnya disetel yang telah kita buat di bagian sebelumnya:
+
+#model final
+```{r}
+model_final <- prophet(changepoint.prior.scale = 0.05, 
+                       yearly.seasonality = TRUE) %>%
+  fit.prophet(train) 
+future_final <- make_future_dataframe(model_final, periods = nrow(test) + 2*365) 
+forecast_final <- predict(model_final, future_final) 
+plot(model_final, forecast_final) 
+```
+```{r}
+plot(model_final, forecast_final) + 
+  geom_point(data = test %>% mutate(ds = as.POSIXct(ds)), aes(x=ds, y=y), color="tomato3")
+```
+```{r}
+eval <- test %>% 
+  mutate( 
+    ds = as.POSIXct(ds) 
+  ) %>% 
+  left_join(forecast_final) %>% 
+  select(ds, y, yhat, yhat_upper, yhat_lower) 
+eval 
+```
+
+```{r}
+eval %>% 
+  mutate( 
+    flag_extreme = ifelse(y > yhat_upper | y < yhat_lower, "1", "0"), 
+    month = month(ds, label = T), 
+  ) %>% 
+ggplot(aes(x=ds, y=y)) + 
+  geom_ribbon(aes(ymin=yhat_lower, ymax=yhat_upper), alpha = 0.3, fill="dodgerblue4") + 
+  geom_line(aes(x=ds, y=yhat)) + 
+  geom_point(aes(color=flag_extreme), alpha = 0.5, size = 2) + 
+  facet_wrap(~month, scales = "free_x")
+```
+#menentukan nilai MAPE
+
+```{r}
+df.cv <- cross_validation(model_final, initial = 365 , period = 180, horizon = 365, units = 'days')
+head(df.cv)
+
+```
+
+```{r}
+tail(df.cv)
+```
+```{r}
+df.cv
+```
+
+#Nilai MAPE
+
+```{r}
+df.p <- performance_metrics(df.cv)
+df.p
+```
+
+Rata-rata nilai MAPE
+```{r}
+mape <- function(y, yhat) { 
+  return(mean(abs(y - yhat)/ y)) 
+} 
+mape(df.cv$y, df.cv$yhat) 
+```
+
+bisa dilihat bahwa nilai rata-rata MAPE untuk model peramalam utk 1 tahun berada dibawah 10% atau sebesar 0,77%, artinya kemampuan model peramalan yang dihasilkan sangat baik 
+
+
+Ramalan berdasarkan bulan
+```{r}
+eval %>% 
+  mutate( 
+    month = month(ds, label = T) 
+  ) %>% 
+  group_by(month) %>% 
+  summarise( 
+    mape = mean(abs(y-yhat)/y) 
+  ) %>% 
+  ggplot(aes(x = month, y = mape)) + 
+  geom_line(group=1) + 
+  geom_point() + 
+  theme_minimal() 
+```
+
+
+
+
+
+
+

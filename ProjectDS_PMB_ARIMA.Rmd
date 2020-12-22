@@ -1,0 +1,458 @@
+---
+title: "Project DS - PMB"
+author: "Roni Yunis"
+date: "8/31/2020"
+output: html_document
+---
+#clear variabel
+```{r}
+rm(list=ls())
+```
+
+```{r setup, include=FALSE}
+# setup chunk options
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  comment = "#>"
+)
+options(scipen = 9999)
+```
+
+```{r}
+# package for data wrangling/data manipulation
+library(dplyr)
+# package for working with date
+library(lubridate)
+# package for visualization
+library(ggplot2)
+# package untuk memahami script/R
+library(tidyverse)
+# tseries package for stationer data check
+library(tseries)
+library(forecast)
+library(lmtest)
+library(FitAR)
+library(fpp2)
+library(TTR)
+
+```
+
+# Data Preparation
+```{r}
+pmb <- read.csv ("data_input/pmbmikroskil.csv")
+pmb <- pmb[,2:11] #menampilkan indek kolom ke 2 sampai dengan 8
+#fungsi head digunakan utk menampilkan 6 data teratas
+head(pmb)
+```
+
+
+```{r}
+#fungsi tail digunakan utk menampilkan 6 data terbawah
+tail(pmb)
+```
+
+```{r}
+pmb
+```
+
+
+```{r}
+#fungsi untuk melihat summary dari data
+summary(pmb)
+```
+Terdapat 2 buah data NA
+
+```{r}
+pmbclean <- na.omit(pmb)
+summary(pmbclean)
+```
+
+#untuk menentukan apakah data stationer atau tidak.
+```{r}
+adf.test(pmbclean$Jumlah.Mhs)
+```
+
+```{r}
+#fungsi ncol ini digunakan untuk melihat jumlah kolom data
+ncol(pmbclean)
+```
+```{r}
+#fungsi nrow ini digunakan untuk melihat jumlah baris data
+nrow(pmbclean)
+```
+```{r}
+#fungsi untuk menampilkan kolom tertentu dalam beberapa kolom data
+pmbclean %>% #ctrl + shift + m (piping/fungsi Pipe)
+  select(3) %>%
+  head()
+```
+
+```{r}
+#fungsi untuk menampilkan type data dari kolom atau variabel
+glimpse(pmbclean)
+```
+
+Karena Tanggal.Daftar dalam bentuk type data karakter, maka kita harus rubah kedalam bentuk type data (date) atau tanggal, dengan format dd.mm.yyy
+
+
+```{r}
+pmbnew <- pmbclean %>% 
+  mutate(Tanggal.Daftar = dmy (Tanggal.Daftar)) %>% 
+  arrange(Tanggal.Daftar)
+head(pmbnew)
+```
+
+```{r}
+glimpse(pmbnew)
+```
+
+```{r}
+#merubah type data jumlah.mhs menjadi double
+pmbnew$Jumlah.Mhs <- as.numeric(as.factor(pmbnew$Jumlah.Mhs))
+glimpse(pmbnew)
+```
+
+# Visualisasi Exploratory Analysis
+```{r}
+pmbnew <- pmbnew[order(pmb$Tanggal.Daftar), ]
+prodi <- c("TEKNIK INFORMATIKA (S-1)","SISTEM INFORMASI (S-1)", "MANAJEMEN (S-1)", "AKUNTANSI (S-1)")
+prodi <-  subset(pmbnew, Program.Studi %in% prodi)
+ggplot (data=prodi, mapping=aes(x=Tanggal.Daftar, y=(Jumlah.Mhs), col=Program.Studi)) +
+geom_point () +
+  geom_jitter()
+  labs(x="Tahun",
+      y="Jumlah Mahasiswa",
+      title="Jumlah Mahasiswa") +
+theme_minimal()
+```
+```{r}
+# kita ingin melakukan filter data dengan kondisi program studi Teknik Informatika dan Sistem Informasi saja
+pmbstmik <- pmbnew %>% 
+  filter(Program.Studi == "TEKNIK INFORMATIKA (S-1)" | Program.Studi == "SISTEM INFORMASI (S-1)")
+glimpse(pmbstmik)
+  
+```
+
+```{r}
+pmbstie <- pmbnew %>% 
+  filter (Program.Studi == "MANAJEMEN (S-1)" | Program.Studi == "AKUNTANSI (S-1)")
+glimpse(pmbstie)
+```
+
+#Visualisasi data STMIK
+```{r}
+pmbstmik <- pmbstmik[order(pmbnew$Tanggal.Daftar),]
+prodi <- c("TEKNIK INFORMATIKA (S-1)","SISTEM INFORMASI (S-1)")
+prodi <- subset(pmbstmik, Program.Studi %in% prodi)
+ggplot (data=prodi, mapping=aes(x=Tanggal.Daftar, y=(Jumlah.Mhs), col=Program.Studi)) + 
+  #geom_line(aes(color  = Program.Studi)) +
+  geom_point(aes(color = Program.Studi)) +
+  labs(x="Tahun",
+       y="Jumlah Mahasiswa",
+       title="Jumlah Mahasiswa STMIK") +
+  theme_minimal()
+```
+#menghitung jumlah.mhs yang mendaftar berdasarkan program studi
+```{r}
+pmbnew %>% 
+  group_by(Program.Studi) %>% 
+  count() %>% 
+  arrange(-n)
+```
+#filter mahasiswa program studi Sistem Informasi (SI)
+```{r}
+prodiSI <- pmbstmik %>% 
+  filter(Program.Studi == "SISTEM INFORMASI (S-1)")
+glimpse(prodiSI)
+```
+
+```{r}
+head(prodiSI)
+```
+#range tanggal pendaftaran mahasiswa baru
+```{r}
+range(prodiSI$Tanggal.Daftar)
+```
+
+#tampilkan jumlah mahasiswa program studi Sistem Informasi yang mendaftar perhari
+```{r}
+daily_regis <- prodiSI %>% 
+  group_by(Tanggal.Daftar) %>% 
+  summarise(
+    jmlDaftar = sum (Jumlah.Mhs)
+  )
+daily_regis
+```
+
+#visualisasi pendaftaran perhari program studi Sistem Informasi
+```{r}
+daily_regis %>% 
+  ggplot(aes(x=Tanggal.Daftar, y=jmlDaftar)) +
+  geom_point() +
+  theme_minimal()
+```
+
+
+```{r}
+d.posprodi <- diff(daily_regis$jmlDaftar)
+plot(d.posprodi)
+```
+```{r}
+summary(d.posprodi)
+```
+
+```{r}
+adf.test(d.posprodi,"stationary", k=0)
+```
+```{r}
+acf(d.posprodi, na.action = na.omit)
+```
+```{r}
+pacf(d.posprodi, na.action = na.omit)
+```
+
+
+
+
+```{r}
+ggtsdisplay(daily_regis$jmlDaftar,
+            plot.type = "partial",
+            main = "ACF dan PACF plot untuk Jumlah Mahasiswa Prodi SI",
+            smooth = TRUE)
+```
+#ARIMA Model 
+
+```{r}
+auto.arima(daily_regis$jmlDaftar, 
+           trace=TRUE,
+           approximation = FALSE)
+```
+
+Model ARIMA terbaik ada pada Model ARIMA (2,0,3)
+
+#Fit ARIMA
+
+```{r}
+fitmyarima <- arima(daily_regis$jmlDaftar, order=c(2,0,3))
+coeftest(fitmyarima)
+```
+
+semua estimasi nilai signfikannya p value < 0,05. Langkah selanjutnya kita akan memprediksi nilai dari masa depan untuk Jumlah Mahasiswa di Program Studi SI untuk 2 tahun kedepan
+
+```{r}
+summary(fitmyarima)
+```
+
+
+```{r}
+fcst <- forecast(fitmyarima,h=730) #2 * 365
+autoplot(fcst, include = 180)
+```
+
+```{r}
+fitmyarimadrift <- Arima (daily_regis$jmlDaftar, order = c(2,0,3), include.drift = TRUE)
+next2yearsdrift <- forecast(fitmyarimadrift, h=730, level=c(85,95))
+plot(next2yearsdrift)
+```
+dengan tingkat kepercayaan 80 hingga 95% untuk interval prediksi. Bagian yang lebih gelap untuk Confiden interval (CI) 80% dan bagian yang diarsir lebih terang untuk CI 95%. Dan bisa dilihat bahwa ada trend penurunan jumlah mahasiswa baru (Prodi SI) untuk 2 tahun kedepan.
+
+Perkiraan untuk jumlah mahasiswa untuk 2 tahun kedepan di prodi SI
+```{r}
+round(next2yearsdrift$mean)
+```
+
+```{r}
+round(next2yearsdrift$upper)
+```
+
+Berdasarkan hal tersebut, maka bisa disimpulkan bahwa ada trend penurunan jumlah mahasiswa baru prodi SI utk 2 tahun kedepan dengan tingkat kepercayaan 95%.
+
+
+```{r}
+summary(next2yearsdrift)
+```
+
+
+#Model ARIMA 2
+
+Proses konversi data menjadi tipe data time series
+```{r}
+pmb_ts <- ts(data = pmbnew$Jumlah.Mhs, start = c(2010,5), end = c(2019,9), frequency = 365)
+```
+
+```{r}
+glimpse(pmb_ts)
+```
+
+
+Membagi data training dan testing, data 8 tahun pertama utk training dan 1 tahun selanjutnya sebagai data testing
+```{r}
+pmb_train <- head(pmb_ts, 8*365)
+pmb_test <- tail(pmb_ts, length(pmb_ts)-length(pmb_train))
+pmb_train %>% decompose() %>% autoplot()
+```
+
+
+Model Auto ARIMA
+```{r}
+pmbmodelauto <- auto.arima(pmb_train)
+summary(pmbmodelauto)
+```
+Model yang terbentuk berdasarkan auto.arima untuk data mahasiswa baru ARIMA(5,1,0)
+
+```{r}
+pmbautoforecast <- forecast(object = pmbmodelauto, h=5*365)
+autoplot(pmbautoforecast)
+```
+Visualisasi hasil model dengan ARIMA (5,1,0)
+
+```{r}
+pmb_ts %>% autoplot (series = "Train Data")+
+  autolayer(pmb_test, series = "Test Data")+
+  autolayer(pmbautoforecast, series = "Forecast")
+
+```
+#######################################################################
+
+#Model ARIMA 2 STMIK
+
+```{r}
+pmbstmik
+```
+
+Proses konversi data menjadi tipe data time series
+```{r}
+regisSTMIK_ts <- ts(data = pmbstmik$Jumlah.Mhs, start = c(2010,5), frequency = 360)
+```
+
+```{r}
+glimpse(regisSTMIK_ts)
+```
+
+
+Membagi data training dan testing, data 9 tahun pertama utk training dan 1 tahun selanjutnya sebagai data testing
+```{r}
+pmb_trainSTMIK <- head(regisSTMIK_ts, 9* 365)
+pmb_testSTMIK <- tail(regisSTMIK_ts, length(regisSTMIK_ts)-length(pmb_trainSTMIK))
+pmb_trainSTMIK %>% decompose() %>% autoplot()
+```
+
+```{r}
+pmbmodelautoSTMIK <- auto.arima(pmb_trainSTMIK)
+summary(pmbmodelautoSTMIK)
+```
+
+
+################################################
+
+
+#Model ARIMA 2 STIE
+
+```{r}
+pmbstie
+```
+
+Proses konversi data menjadi tipe data time series
+```{r}
+regisSTIE_ts <- ts(data = pmbstie$Jumlah.Mhs, start = c(2015 ,5,1), frequency = 360)
+```
+
+```{r}
+glimpse(regisSTIE_ts)
+```
+```{r}
+adf.test(regisSTIE_ts)
+```
+
+
+Membagi data training dan testing, data 6 tahun pertama utk training dan 1 tahun selanjutnya sebagai data testing
+```{r}
+pmb_trainSTIE <- head(regisSTIE_ts, 5* 365)
+pmb_testSTIE <- tail(regisSTIE_ts, length(regisSTIE_ts)-length(pmb_trainSTIE))
+pmb_trainSTIE %>% decompose() %>% autoplot()
+```
+
+```{r}
+pmbmodelautoSTIE <- auto.arima(pmb_trainSTIE)
+summary(pmbmodelautoSTIE)
+```
+
+```{r}
+pmbmodelautoSTIEforecast <- forecast(pmbmodelautoSTIE, h=365)
+autoplot(pmbmodelautoSTIEforecast, frequency = 60)
+```
+########################################
+
+FIT Model 
+
+data ts diambil dari data pmb_ts sebelumnya (data keseluruhan)
+
+```{r}
+fitARIMApmb <- arima(pmb_ts, order=c(5,1,0), seasonal = list(order = c(0,0,0), period = 365),method="ML")
+library(lmtest)
+coeftest(fitARIMApmb) 
+```
+```{r}
+confint(fitARIMApmb)
+```
+
+
+```{r}
+auto.arima(pmb_ts, trace = TRUE)
+```
+
+prediksi model
+
+```{r}
+predict(fitARIMApmb, n.ahead = 5)
+```
+
+Prediksi untuk 6 tahun kedepan 
+```{r}
+futurVal <- forecast(fitARIMApmb,h=6*365, level=c(99.5))
+autoplot(futurVal)
+```
+```{r}
+summary(futurVal)
+```
+Dari hasil fit model yang dilakukan didapatkan nilai MAPE model sebesar 9,8%, sehingga dapat disimpulkan bahwa model termasuk kategori sangat baik dalam memprediksi.
+
+
+```{r}
+plot.ts(fitARIMApmb$residuals)
+```
+```{r}
+plotForecastErrors <- function(forecasterrors)
+  {
+     # make a histogram of the forecast errors:
+     mybinsize <- IQR(forecasterrors)/4
+     mysd   <- sd(forecasterrors)
+     mymin  <- min(forecasterrors) - mysd*5
+     mymax  <- max(forecasterrors) + mysd*3
+     # generate normally distributed data with mean 0 and standard deviation mysd
+     mynorm <- rnorm(10000, mean=0, sd=mysd)
+     mymin2 <- min(mynorm)
+     mymax2 <- max(mynorm)
+     if (mymin2 < mymin) { mymin <- mymin2 }
+     if (mymax2 > mymax) { mymax <- mymax2 }
+     # make a red histogram of the forecast errors, with the normally distributed data overlaid:
+     mybins <- seq(mymin, mymax, mybinsize)
+     hist(forecasterrors, col="red", freq=FALSE, breaks=mybins)
+     # freq=FALSE ensures the area under the histogram = 1
+     # generate normally distributed data with mean 0 and standard deviation mysd
+     myhist <- hist(mynorm, plot=FALSE, breaks=mybins)
+     # plot the normal curve as a blue line on top of the histogram of forecast errors:
+     points(myhist$mids, myhist$density, type="l", col="blue", lwd=2)
+  }
+```
+
+```{r}
+plotForecastErrors(fitARIMApmb$residuals)
+```
+
+```{r}
+mean(fitARIMApmb$residuals)
+```
+

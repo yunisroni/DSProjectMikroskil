@@ -1,0 +1,702 @@
+---
+title: "Project DS - PMB"
+author: "Roni Yunis"
+date: "8/31/2020"
+output: html_document
+---
+#clear variabel
+```{r}
+rm(list=ls())
+```
+
+
+```{r setup, include=FALSE}
+# setup chunk options
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  comment = "#>"
+)
+options(scipen = 9999)
+```
+
+```{r}
+# package for data wrangling/data manipulation
+library(dplyr)
+# package for working with date
+library(lubridate)
+# package for visualization
+library(ggplot2)
+# package untuk memahami script/R
+library(tidyverse)
+# tseries package for stationer data check
+library(tseries)
+# package Random Forest
+library(randomForest)
+# package forecast
+library(forecast)
+library(tsibble)
+library(TSstudio)
+library(caret)
+
+```
+
+# Data Preparation
+```{r}
+pmb <- read.csv ("data_input/pmbmikroskil.csv")
+pmb <- pmb[,2:11] #menampilkan indek kolom ke 2 sampai dengan 8
+#fungsi head digunakan utk menampilkan 6 data teratas
+head(pmb)
+```
+
+
+```{r}
+#fungsi tail digunakan utk menampilkan 6 data terbawah
+tail(pmb)
+```
+
+```{r}
+pmb
+```
+
+
+```{r}
+#fungsi untuk melihat summary dari data
+summary(pmb)
+```
+Terdapat 2 buah data NA
+
+```{r}
+pmbclean <- na.omit(pmb)
+summary(pmbclean)
+```
+
+#untuk menentukan apakah data stationer atau tidak.
+```{r}
+adf.test(pmbclean$Jumlah.Mhs)
+```
+
+```{r}
+#fungsi ncol ini digunakan untuk melihat jumlah kolom data
+ncol(pmbclean)
+```
+```{r}
+#fungsi nrow ini digunakan untuk melihat jumlah baris data
+nrow(pmbclean)
+```
+```{r}
+#fungsi untuk menampilkan kolom tertentu dalam beberapa kolom data
+pmbclean %>% #ctrl + shift + m (piping/fungsi Pipe)
+  select(3) %>%
+  head()
+```
+
+```{r}
+#fungsi untuk menampilkan type data dari kolom atau variabel
+glimpse(pmbclean)
+```
+
+Karena Tanggal.Daftar dalam bentuk type data karakter, maka kita harus rubah kedalam bentuk type data (date) atau tanggal, dengan format dd.mm.yyy
+
+
+```{r}
+pmbnew <- pmbclean %>% 
+  mutate(Tanggal.Daftar = dmy (Tanggal.Daftar)) %>% 
+  arrange(Tanggal.Daftar)
+head(pmbnew)
+```
+
+```{r}
+glimpse(pmbnew)
+```
+
+```{r}
+#merubah type data jumlah.mhs menjadi double
+pmbnew$Jumlah.Mhs <- as.numeric(as.factor(pmbnew$Jumlah.Mhs))
+glimpse(pmbnew)
+```
+
+# Visualisasi Exploratory Analysis
+```{r}
+pmbnew <- pmbnew[order(pmb$Tanggal.Daftar), ]
+prodi <- c("TEKNIK INFORMATIKA (S-1)","SISTEM INFORMASI (S-1)", "MANAJEMEN (S-1)", "AKUNTANSI (S-1)")
+prodi <-  subset(pmbnew, Program.Studi %in% prodi)
+ggplot (data=prodi, mapping=aes(x=Tanggal.Daftar, y=(Jumlah.Mhs), col=Program.Studi)) +
+geom_point () +
+  geom_jitter()
+  labs(x="Tahun",
+      y="Jumlah Mahasiswa",
+      title="Jumlah Mahasiswa") +
+theme_minimal()
+```
+
+```{r}
+# kita ingin melakukan filter data dengan kondisi program studi Teknik Informatika dan Sistem Informasi saja
+pmbstmik <- pmbnew %>% 
+  filter(Program.Studi == "TEKNIK INFORMATIKA (S-1)" | Program.Studi == "SISTEM INFORMASI (S-1)")
+glimpse(pmbstmik)
+  
+```
+
+```{r}
+pmbstie <- pmbnew %>% 
+  filter (Program.Studi == "MANAJEMEN (S-1)" | Program.Studi == "AKUNTANSI (S-1)")
+glimpse(pmbstie)
+```
+
+#Visualisasi data STMIK
+```{r}
+pmbstmik <- pmbstmik[order(pmbnew$Tanggal.Daftar),]
+prodi <- c("TEKNIK INFORMATIKA (S-1)","SISTEM INFORMASI (S-1)")
+prodi <- subset(pmbstmik, Program.Studi %in% prodi)
+ggplot (data=prodi, mapping=aes(x=Tanggal.Daftar, y=(Jumlah.Mhs), col=Program.Studi)) + 
+  #geom_line(aes(color  = Program.Studi)) +
+  geom_point(aes(color = Program.Studi)) +
+  labs(x="Tahun",
+       y="Jumlah Mahasiswa",
+       title="Jumlah Mahasiswa STMIK") +
+  theme_minimal()
+```
+#menghitung jumlah.mhs yang mendaftar berdasarkan program studi
+```{r}
+pmbnew %>% 
+  group_by(Program.Studi) %>% 
+  count() %>% 
+  arrange(-n)
+```
+#filter mahasiswa program studi Sistem Informasi (SI)
+```{r}
+prodiSI <- pmbstmik %>% 
+  filter(Program.Studi == "SISTEM INFORMASI (S-1)")
+glimpse(prodiSI)
+```
+
+```{r}
+head(prodiSI)
+```
+#range tanggal pendaftaran mahasiswa baru
+```{r}
+range(prodiSI$Tanggal.Daftar)
+```
+
+#tampilkan jumlah mahasiswa program studi Sistem Informasi yang mendaftar perhari
+```{r}
+daily_regis <- prodiSI %>% 
+  group_by(Tanggal.Daftar) %>% 
+  summarise(
+    jmlDaftar = sum (Jumlah.Mhs)
+  )
+daily_regis
+```
+
+#visualisasi pendaftaran perhari program studi Sistem Informasi
+```{r}
+daily_regis %>% 
+  ggplot(aes(x=Tanggal.Daftar, y=jmlDaftar)) +
+  geom_point() +
+  theme_minimal()
+```
+
+#Random Forest Forecasting
+
+```{r}
+glimpse(pmbclean)
+```
+
+```{r}
+pmbclean$Date <- as.Date(pmbclean$Tanggal.Daftar, format = '%d-%m-%Y')
+pmbclean$Program.Studi <- as.factor(pmbclean$Program.Studi)
+glimpse(pmbclean)
+```
+
+```{r}
+pmbclean$year <- lubridate::year(pmbclean$Tanggal.Daftar)
+pmbclean$yday <- yday(pmbclean$Tanggal.Daftar)
+pmbclean$quarter <- quarter(pmbclean$Tanggal.Daftar)
+pmbclean$month <- lubridate::month(pmbclean$Tanggal.Daftar)
+pmbclean$day <- lubridate::day(pmbclean$Tanggal.Daftar)
+#pmbclean$weekdays <- weekdays(pmbclean$Tanggal.Daftar)
+glimpse(pmbclean)
+
+```
+
+```{r}
+set.seed(100)
+train <- pmbclean[pmbclean$Program.Studi == 'SISTEM INFORMASI (S-1)',]
+test <- pmbclean[pmbclean$Program.Studi == 'MANAJEMEN (S-1)',]
+
+dim(train)
+dim(test)
+```
+
+```{r}
+glimpse(train)
+```
+
+
+
+#Model Evaluasi Matrik
+```{r}
+mape <- function(actual,pred){
+  mape <- mean(abs((actual - pred)/actual))*100
+  return(mape)
+}
+```
+
+#Random Forest
+```{r}
+set.seed(100)
+rf <- randomForest(Jumlah.Mhs ~ Jumlah.Grade.A + year + yday + quarter + month + day, data=train)
+rf
+```
+
+Berdasarkan hasil model di atas bisa dilihat bahwa nilai dari MSR 0,05 untuk prediksi jumlah mahasiswa.
+
+Mengevaluasi model training dan data pengujian
+
+```{r}
+predictions <- predict(rf, newdata = train)
+mape(train$Jumlah.Mhs, predictions)
+
+predictions <- predict(rf, newdata = test)
+mape(test$Jumlah.Mhs, predictions)
+```
+
+dari hasil diatas bisa dilihat bahwa MAPE adalah 4,6% pada data training, sedangkan pada data testing naik menjadi 5,19%. Terlihat bahwa data training tidak mengeneralisasi data testning, sehingga model ini kurang kuat. Maka langkah selanjutnya adalah merevisi model tsb.
+
+```{r}
+varImpPlot(rf)
+```
+
+#model revisi
+```{r}
+set.seed(100)
+rf_revised <- randomForest(Jumlah.Mhs ~ Jumlah.Grade.A + year + yday,  data=train)
+rf_revised
+```
+
+```{r}
+predictions <- predict(rf_revised, newdata = train)
+mape(train$Jumlah.Mhs, predictions)
+
+predictions <- predict(rf_revised, newdata = test)
+mape(test$Jumlah.Mhs, predictions)
+```
+
+Output diatas menunjukkan bahwa MAPE adalah 4% pada data training dan data testing. Kesamaan hasil ini adalah salah satu indikator yang menunjukkan bahwa model ini kuat dan dapat mengeneralisasi dengan baik. Ada juga sedikit penurunan pada MAPE dari model sebelumnya, dan menunjukkan bahwa model yang sudah direvisi bekerja dengan baik.
+
+
+
+##Random FOREST Model 2
+
+```{r}
+train_rf <- pmbnew[pmbnew$Tanggal.Daftar >= dmy("01-02-2010") & pmbnew$Tanggal.Daftar < dmy("01-04-2018"),]
+test_rf <- pmbnew[pmbnew$Tanggal.Daftar >= dmy("01-04-2018"),]
+
+dim(train_rf)
+dim(test_rf)
+
+```
+
+```{r}
+set.seed(100)
+
+rf.fitted <- randomForest(Jumlah.Mhs ~.,data = train_rf,
+                          ntree = 300,
+                          mtry = 3 ,
+                          importance=TRUE,
+                          proximity=TRUE)
+                   
+```
+
+```{r}
+rf.fitted
+```
+
+
+#Model Evaluasi Matrik
+```{r}
+mape <- function(actual,pred){
+  mape <- mean(abs((actual - pred)/actual))*100
+  return(mape)
+}
+```
+
+```{r}
+predictions <- predict(rf.fitted, newdata = train_rf)
+mape(train_rf$Jumlah.Mhs, predictions)
+
+predictions <- predict(rf.fitted, newdata = test_rf)
+mape(test_rf$Jumlah.Mhs, predictions)
+```
+
+Data training tidak bisa mengeneralisasi data test, maka model harus di perbaiki.
+
+
+```{r}
+#CARET TIME
+set.seed(100)
+
+rf.fitted1 <- randomForest(Jumlah.Mhs ~. -Kode.Sekolah + Nama.Kota , data = train_rf,
+                          ntree = 300,
+                          mtry = 8,
+                          importance=TRUE,
+                          proximity=TRUE)
+                   
+```
+
+```{r}
+rf.fitted1
+```
+
+```{r}
+predictions1 <- predict(rf.fitted1, newdata = train_rf)
+mape(train_rf$Jumlah.Mhs, predictions1)
+
+predictions1 <- predict(rf.fitted1, newdata = test_rf)
+mape(test_rf$Jumlah.Mhs, predictions1)
+```
+
+Output diatas menunjukkan bahwa MAPE adalah 1% pada data training dan data testing. Kesamaan hasil ini adalah salah satu indikator yang menunjukkan bahwa model ini kuat dan dapat mengeneralisasi dengan baik. Ada juga sedikit penurunan pada MAPE dari model sebelumnya, dan menunjukkan bahwa model yang sudah direvisi bekerja dengan baik.
+
+```{r}
+plot(rf.fitted1)
+```
+
+```{r}
+varImpPlot(rf.fitted1)
+```
+```{r}
+predictions1 <- predict(rf.fitted1, newdata = test_rf)
+head(predictions1)
+```
+
+
+
+```{r}
+plot(predictions1)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+###############################################
+Model Regression Tree
+
+```{r}
+head(pmbnew)
+```
+
+
+```{r}
+pmbnewset <- pmbnew[, c(1,2,3,4,5,6,7,9)]
+names(pmbnewset) <- c("Tanggal.Daftar", "Program.Studi", "Jumlah.Mhs", "Jumlah.Grade.A", "Jumlah.Grade.B", "JUmlah.Grade.C", "Jumlah.Grade.D", "Nama.Sekolah")
+str(pmbnewset)
+```
+
+
+```{r}
+set.seed(1234)
+modelRF <- rpart(Jumlah.Mhs ~., data=pmbnewset, method = "anova")
+```
+
+```{r}
+modelRF
+```
+
+```{r}
+rpart.plot(modelRF, type = 4, digits = 3, fallen.leaves = FALSE, shadow.col = "gray", box.palette = "BuGn")
+```
+prediksi
+```{r}
+prediksi <- predict(modelRF, pmbnewset)
+```
+
+goodness of fit
+```{r}
+MAE(pmbnewset$Jumlah.Mhs, prediksi)
+```
+Model tersebut memiliki nilai MAE 0,002 yang berarti bahwa tingkat kesalahan dari model dalam mengetismasi jumlah mahasiswa adalah sebesar 0,002
+
+
+
+############################################################
+# BELUM SIAP
+############################################################
+
+##Model RAMDOM FOREST 3
+
+```{r}
+head(pmbnew)
+```
+
+```{r}
+plot_org <- pmbnew %>% 
+  ggplot(aes(Tanggal.Daftar, Jumlah.Mhs)) + 
+  geom_line() +
+  theme_minimal() +
+  labs(title = "Jumlah Mahasiswa 2010 - 2019", x = "Tahun", y = "Jumlah")
+plot_org
+```
+
+
+
+```{r}
+pmbnewset <- pmbnew[1:3]
+pmbnewset
+```
+
+
+```{r}
+pmb_ts <- as.ts(pmbnewset)
+glimpse(pmb_ts)
+```
+
+
+
+```{r}
+pmbts_org <- window(pmb_ts, end = c(2019,9))
+
+```
+
+```{r}
+n_diffs <- ndiffs(pmbts_org)
+```
+
+```{r}
+pmbts_trf <- pmbts_org %>%
+  log() %>%
+  diff(n_diffs)
+```
+
+```{r}
+plot_trf <- pmbts_trf %>% 
+  autoplot() +
+  xlab("") +
+  ylab("Jumlah") +
+  ggtitle("Jumlah Mahasiswa Baru 2010 - 2019") +
+  theme_minimal()
+```
+
+```{r}
+gridExtra::grid.arrange(plot_org, plot_trf)
+```
+
+```{r}
+lag_order <- 6 # the desired number of lags (six months)
+horizon <- 12 # the forecast horizon (twelve months)
+pmbts_mbd <- embed(pmbts_trf, lag_order + 1) # embedding magic!
+```
+
+
+```{r}
+y_train <- pmbts_mbd[, 1] # the target
+X_train <- pmbts_mbd[, -1] # everything but the target
+y_test <- window(pmb_ts, start = c(2017, 1), end = c(2019, 12)) # the year 2018
+X_test <- pmbts_mbd[nrow(pmbts_mbd), c(1:lag_order)] # the test set consisting
+```
+
+```{r}
+X_train
+```
+
+
+```{r}
+y_test
+```
+
+```{r}
+forecasts_rf <- numeric(horizon)
+```
+
+
+```{r}
+set.seed(100)
+  # fit the model
+  fit_rf <- randomForest(X_train, y_train)
+```
+
+
+```{r}
+forcaserf <- forecast(fit_rf )
+```
+
+
+```{r}
+# calculate the exp term
+exp_term <- exp(cumsum(forecasts_rf))
+# extract the last observation from the time series (y_t)
+last_observation <- as.vector(tail(pmbts_org, 1))
+# calculate the final predictions
+backtransformed_forecasts <- last_observation * exp_term
+# convert to ts format
+y_pred <- ts(
+  backtransformed_forecasts,
+  start = c(2018, 1),
+  frequency = 12
+)
+# add the forecasts to the original tibble
+pmb_tbl <- pmbnew %>% 
+  mutate(Forecast = c(rep(NA, length(pmbts_org)), y_pred))
+# visualize the forecasts
+plot_fc <- pmb_tbl %>% 
+  ggplot(aes(x = Date())) +
+  geom_line(aes(y = Value / 1000)) +
+  geom_line(aes(y = Forecast / 1000), color = "blue") +
+  theme_minimal() +
+  labs(
+    title = "Forecast of the German Wage and Income Tax for the Year 2018",
+    x = "Year",
+    y = "Euros"
+  )
+accuracy(y_pred, y_test)
+```
+
+
+
+```{r}
+modelrfforcase <- forecast(modelrf)
+```
+
+```{r}
+autoplot(pmb_y)
+```
+#benchmark forecast
+```{r}
+#menggunakan seasonal naive method
+fit_naive <- snaive(pmb_ts)
+summary(fit_naive)
+checkresiduals(fit_naive)
+```
+
+```{r}
+fit_arima <- auto.arima(pmb_ts,d=1,D=1,stepwise = FALSE, approximation = FALSE, trace = TRUE)
+summary(fit_arima)
+checkresiduals(fit_arima)
+```
+
+```{r}
+fcrs <- forecast(fit_naive)
+autoplot(fcrs)
+```
+
+
+Data akan dibagi menjadi 2 yakni data train yang akan digunakan untuk pembentukan model dan data test yang akan digunakan sebagai pengujian akurasi terhadap model data trainnya.
+
+Model yang akan dibentuk diambil dari 8 tahun pertama dan 1 tahun selanjutnya sebagi data test.
+
+```{r}
+pmb_train <- head(pmb_ts, 8*365)
+pmb_test <- tail(pmb_ts, length(pmb_ts)-length(pmb_train))
+pmb_train %>% decompose() %>% autoplot()
+```
+```{r}
+pmb_train
+pmb_test
+```
+
+
+```{r}
+ts_seasonal(pmb_ts, type = 'normal')
+```
+
+#Visualisasi Data
+
+```{r}
+pmb1_ts <- as.ts(pmbclean)
+```
+
+```{r}
+pmb_ts_org <- window(pmb1_ts, end = c(2018, 12))
+```
+
+```{r}
+pmb_ts_org
+```
+
+
+```{r}
+bln_pmb <- 6 #lags utk 6 bulan
+thn_pmb <- 12 #forecast utk 12 bulan
+
+pmb_ts_mbd <- embed(pmb_ts_org, bln_pmb + 1)
+```
+
+```{r}
+y_train <- pmb_ts_mbd[, 1] #taget
+x_train <- pmb_ts_mbd[,-1] #selain target
+
+y_test <- window(pmb1_ts, start= c(2019,1), end = c(2019,12))
+x_test <- pmb_ts_mbd[nrow(pmb_ts_mbd), c(1:bln_pmb)]
+```
+
+#forecasting
+```{r}
+forecasts_rf <- numeric(thn_pmb)
+for (i in 1:thn_pmb){
+  set.seed(100)
+  
+  #fit model
+  fit_rf <- randomForest(x_train, y_train)
+  
+  #prediksi menggunakan data test
+  forecasts_rf[i] <- predict(fit_rf, x_test)
+  
+  y_train <- y_train[-1]
+  
+  x_train <- x_train[-nrow(x_train),]
+}
+```
+
+```{r}
+exp_term <- exp(cumsum(forecasts_rf))
+
+last_observation <- as.vector(tail(pmb_ts_org,1))
+
+#kalkulasi hasil final prediksi
+Backtransformed_forecast <- last_observation * exp_term
+
+#conversi ke ts format
+y_pred <- ts(
+  Backtransformed_forecast,
+  start = c(2019, 1),
+  frequency = 12
+)
+
+#pmbclean <- pmbclean %>%
+#  mutate(forecasts_rf = c(rep(NA, length(pmb_ts_org)), y_pred))
+
+#visualisasi hasil forecasting
+#plot_fc <- pmbclean %>%
+#  ggplot(aes(x=Tanggal.Daftar)) +
+#  geom_line(aes(y = Jumlah.Mhs)) +
+#  geom_line(aes(y = forecasts_rf), color = "blue") +
+#  theme_minimal() +
+#  labs(
+#    title = "Peramalan Mahasiswa Baru untuk tahun 2020",
+#    x="Tahun",
+#    y="Jumlah"
+#  )
+
+```
+
+
